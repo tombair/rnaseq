@@ -1,0 +1,128 @@
+Author: "Tom Bair"
+date: ""
+output: html_document
+---
+
+Inital import of libraries: This is a typical DESeq2 analysis
+
+```{r,eval=TRUE,echo=TRUE,results='hide',message=FALSE}
+library("DESeq2")
+library("gplots")
+library("genefilter")
+library("RColorBrewer")
+library("gtools")
+source("functions/dist.pear.R")
+library("knitr")
+library("gProfileR")
+library("limma")
+```
+
+
+Import the data file and the phenotype file to assign samples to categorical variables. 
+
+```{r,eval=TRUE,cache=FALSE,echo=TRUE,results='hide',message=FALSE}
+organism = 'mmusculus'
+pheno_file <- ""
+counts <- read.table("",header=TRUE,row.names=1,sep='\t')
+pheno <- read.table(pheno_file,header=TRUE, sep=",",row.names=1)
+project_name <- ""
+file_path = paste("./",project_name,"_results/",sep="")
+if (!file.exists(file_path)){
+  dir.create(file_path, mode = "0777")
+}
+
+dds <- DESeqDataSetFromMatrix(countData = counts, colData=pheno, design = ~Type ) #<---insert design column name here
+rld <- rlogTransformation(dds)
+dds<- DESeq(dds)
+print(dim(rld))
+distsRL <- dist(t(assay(rld)))
+mat <- as.matrix(distsRL)
+```
+
+Values assigned to samples ***verify that this is correct ***
+
+```{r, echo=FALSE}
+kable(pheno)
+```
+
+PCA plot, should show similarites between related samples, however it may be more influenced by other technical factors if the biological differences are slight
+
+```{r, fig.width=8, fig.height=6 }
+plotPCA(rld,intgroup = c("Type"))
+```
+
+Correlation heatmap, similar concept to the PCA plot just a different technique.
+
+```{r, fig.width=8, fig.height=6}
+heatmap.2(mat,trace="none", margin = c(10,10),col = greenred(75),labRow = pheno$Type,labCol = pheno$ID)
+```
+
+Compare Template
+
+```{r}
+res <- results(dds, pAdjustMethod = "fdr",contrast = c("Type","",""))
+resSig <- !is.na(res$padj) & res$padj <= 0.01 & abs(res$log2FoldChange) >= 2
+```
+
+Number of significant genes
+
+```{r}
+summary(resSig)
+```
+
+Heatmap of significant results compairing # add comparison
+
+```{r, fig.width=8, fig.height=6}
+heatmap.2(assay(rld)[resSig,],distfun=dist.pear.minus,hclustfun=hclust.ave, col = greenred(75), labCol=pheno$Type,scale="row",dendrogram = "both", trace="none",labRow=FALSE, margin=c(10,6))
+  
+```
+
+Volcano Plot
+```{r, fig.width=8, fig.height=6}
+  plot(res$log2FoldChange, -log10(res$pvalue ), ylab="-log10(p-value)", xlab="logFC")
+  points(res[resSig,"log2FoldChange"], -log10(res[resSig,"pvalue"]), col=2, pch=20)
+```
+
+
+Write out the data 
+```{r}
+
+normcounts <- as.data.frame(counts(dds, normalized=TRUE))
+colnames(normcounts)<-paste(colnames(normcounts),pheno$Type)
+colnames(res) <- paste(colnames(res),"NIK_DN1_v_CTL",sep="_")
+colnames(res2) <- paste(colnames(res),"NIK_HSC_v_CTL",sep="_")
+DN1 <- resSig
+HSC <- resSig2
+d <- cbind(normcounts,DN1,HSC,res,res2)
+
+write.csv(d, quote=TRUE, file='results.csv')
+i <- resSig & resSig2
+g<- gprofiler(rownames(d[i,]),organism = organism)
+write.csv(g,file="go_enrichment.csv")
+```
+
+```{r}
+  v <- cbind(resSig,resSig2)
+  colnames(v)<- c("DN1","HSC")
+```
+
+Overlap of significant results
+
+```{r, fig.width=9, fig.height=6}
+  vennDiagram(v)
+```
+
+Plot out the genes that have significance in both tests
+
+```{r, fig.width=8, fig.height=6}
+i <- resSig & resSig2
+heatmap.2(assay(rld)[i,],distfun=dist.pear.minus,hclustfun=hclust.ave, col = greenred(75), labCol=pheno$Type,scale="row",dendrogram = "both", trace="none",labRow=FALSE, margin=c(10,6))
+  
+```
+
+
+Session info:
+
+```{r}
+sessionInfo()
+```
